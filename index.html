@@ -591,13 +591,16 @@ window.openPromote=id=>{const c=S.cands.find(x=>x.id===id);const S2=S.co;modal(`
 /* ---------- Team chat ---------- */
 function vChat(v){
   try{localStorage.setItem('ncal-chat-seen-'+S.me.id,Date.now())}catch(e){}
-  v.innerHTML=`<div class="card chat"><div class="secH" style="border-bottom:1px solid var(--line)"><div><h3>Team Chat</h3><p>${S.co==='all'?'Showing every company thread':'Syntech ↔ '+esc(coName(S.co))+' hiring team'}</p></div></div><div class="msgs" id="msgs"></div>
+  v.innerHTML=`<div class="card chat"><div class="secH" style="border-bottom:1px solid var(--line)"><div><h3>Team Chat</h3><p>${S.co==='all'?'Showing every company thread':'Syntech ↔ '+esc(coName(S.co))+' hiring team · anyone not in the chat gets an email'}</p></div></div><div class="msgs" id="msgs"></div>
   <div class="cin"><textarea id="cmsg" placeholder="${S.co==='all'?'Pick a company in the switcher to post':'Message the team…'}" ${S.co==='all'?'disabled':''}></textarea><button class="btn" id="csend" ${S.co==='all'?'disabled':''}>Send</button></div></div>`;
-  renderChatMsgs();renderShell();
+  renderChatMsgs();renderShell();chatBeat();
   const send=async()=>{const t=$('#cmsg');const body=t.value.trim();if(!body)return;t.value='';
-    const d=await dbInsert('ncal_team_messages',{company_id:S.co,sender_id:S.me.id,sender_name:S.me.full_name,body});if(d&&!S.chat.find(x=>x.id===d.id)){S.chat.push(d);renderChatMsgs()}};
+    const d=await dbInsert('ncal_team_messages',{company_id:S.co,sender_id:S.me.id,sender_name:S.me.full_name,body});if(d&&!S.chat.find(x=>x.id===d.id)){S.chat.push(d);renderChatMsgs()}
+    if(d)fnCall('ncal-chat-alert',{message_id:d.id}).then(r=>{if(r&&r.sent)toast('Emailed '+r.sent+' '+(r.sent===1?'person':'people')+' who aren\'t in the chat')}).catch(()=>{})};
   $('#csend').onclick=send;$('#cmsg').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};
 }
+function chatBeat(){if(S.view==='chat'&&document.visibilityState==='visible'&&S.me)sb.from('ncal_users').update({chat_seen:new Date().toISOString()}).eq('id',S.me.id).then(()=>{})}
+setInterval(chatBeat,60000);document.addEventListener('visibilitychange',chatBeat);
 function renderChatMsgs(){const box=$('#msgs');if(!box)return;try{localStorage.setItem('ncal-chat-seen-'+S.me.id,Date.now())}catch(e){}
   const list=S.chat.filter(m=>S.co==='all'||!m.company_id||m.company_id===S.co);
   box.innerHTML=list.length?list.map(m=>`<div class="m ${m.sender_id===S.me.id?'mine':''}"><small>${esc(m.sender_name)}${S.co==='all'&&m.company_id?' · '+esc(coName(m.company_id)):''} · ${fdt(m.created_at)}</small>${esc(m.body)}</div>`).join(''):'<div class="empty">No messages yet — say hello.</div>';
@@ -626,19 +629,22 @@ window.openRole=id=>{const r=id?S.roles.find(x=>x.id===id):{title:'',location:''
 function vSettings(v){
   if(!isAdmin()){v.innerHTML='<div class="empty">Admins only.</div>';return}
   v.innerHTML=`<div class="card"><div class="secH"><div><h3>NMi Performance companies</h3><p>Switch a company on when Syntech starts recruiting for them. It then appears for client users and in the switcher.</p></div></div>
-  ${S.companies.map(c=>`<div class="coCard"><div class="coLogo">${logoHTML(c)}</div><div style="flex:1;min-width:0"><b>${esc(c.name)}</b><div style="font-size:13px;color:var(--mut)">${esc(c.location||'Location not set')} · ${S.roles.filter(r=>r.company_id===c.id).length} roles · ${S.cands.filter(x=>x.company_id===c.id).length} candidates</div></div>
-    <button class="btn s ghost" onclick="openCo('${c.id}')">Edit</button><button class="sw2 ${c.is_live?'on':''}" title="${c.is_live?'Live':'Switched off'}" onclick="toggleCo('${c.id}')"></button></div>`).join('')}<div style="height:8px"></div></div>
+  ${S.companies.map(c=>`<div class="coCard"><div class="coLogo">${logoHTML(c)}</div><div style="flex:1;min-width:0"><b>${esc(c.name)}</b> ${c.is_live?'<span class="pill g">Live</span>':'<span class="pill">Off</span>'}<div style="font-size:13px;color:var(--mut)">${esc(c.location||'Location not set')} · ${S.roles.filter(r=>r.company_id===c.id).length} roles · ${S.cands.filter(x=>x.company_id===c.id).length} candidates · ${S.users.filter(u=>u.org==='client'&&(u.company_access||[]).includes(c.id)).length} client users</div></div>
+    <button class="btn s" onclick="openCompany('${c.id}')">Open →</button><button class="btn s ghost" onclick="openCo('${c.id}')">Edit</button><button class="sw2 ${c.is_live?'on':''}" title="${c.is_live?'Live — click to switch off':'Off — click to switch on'}" onclick="toggleCo('${c.id}')"></button></div>`).join('')}<div style="height:8px"></div></div>
   <div class="card sec"><div class="secH"><div><h3>Users</h3><p>Who can sign in, and which companies they see</p></div><button class="btn ml" onclick="openInvite()">＋ Add user</button></div>
   <div class="tblw"><table><thead><tr><th>Name</th><th>Email</th><th>Side</th><th>Access</th><th>Last seen</th><th></th></tr></thead><tbody>
   ${S.users.map(u=>`<tr><td><b>${esc(u.full_name)}</b><div style="font-size:12px;color:var(--mut)">${esc(u.title||'')}</div></td><td>${esc(u.email)}</td><td>${u.org==='syntech'?'<span class="pill r">Syntech</span>':'<span class="pill b">Client</span>'}</td><td>${u.org==='syntech'?'All companies':(u.company_access||[]).map(coName).join(', ')||'—'}</td><td>${u.last_seen?ago(u.last_seen):'Never'}</td>
   <td style="white-space:nowrap">${u.id!==S.me.id?`<button class="btn s ghost" onclick="resetPw('${u.id}')">Reset password</button> <button class="btn s ghost" onclick="removeUser('${u.id}')">Remove</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
-window.toggleCo=async id=>{const c=coById(id);await dbUpdate('ncal_companies',id,{is_live:!c.is_live},{local:c});toast(c.name+(c.is_live?' is live':' switched off'))};
+window.toggleCo=async id=>{const c=coById(id);const ok=await dbUpdate('ncal_companies',id,{is_live:!c.is_live},{local:c});if(!ok)return;
+  if(c.is_live)toast(c.name+' is live — add its roles under Vacancies and give its hiring team access under Users');else toast(c.name+' switched off — its client users can no longer see it')};
+window.openCompany=id=>{S.co=id;try{localStorage.setItem('ncal-co',id)}catch(e){}go(coById(id).is_live&&!S.roles.some(r=>r.company_id===id)?'vacancies':'overview')};
 window.openCo=id=>{const c=coById(id);modal(`<h3>${esc(c.name)}</h3><p class="s">Branding used on the login page and portal.</p>
   <div class="f"><label>Full name</label><input id="cn" value="${esc(c.name)}"></div><div class="fr"><div class="f"><label>Short name</label><input id="cs" value="${esc(c.short_name)}"></div><div class="f"><label>Brand colour</label><input id="ca" type="color" value="${esc(c.accent)}" style="height:42px;padding:4px"></div></div>
   <div class="f"><label>Location</label><input id="cl" value="${esc(c.location||'')}"></div><div class="f"><label>Logo URL (PNG/SVG)</label><input id="cg" value="${esc(c.logo_url||'')}"></div><div class="f"><label>Website</label><input id="cw" value="${esc(c.website||'')}"></div>
   <div class="mF"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" id="go">Save</button></div>`);
   $('#go').onclick=async()=>{if(await dbUpdate('ncal_companies',id,{name:$('#cn').value.trim(),short_name:$('#cs').value.trim(),accent:$('#ca').value,location:$('#cl').value.trim()||null,logo_url:$('#cg').value.trim()||null,website:$('#cw').value.trim()||null},{local:c}))closeModal()}};
+async function fnCall(fn,body){const {data:{session}}=await sb.auth.getSession();const r=await fetch(SB_URL+'/functions/v1/'+fn,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token,apikey:SB_KEY},body:JSON.stringify(body)});return r.json()}
 async function adminCall(body){const {data:{session}}=await sb.auth.getSession();const r=await fetch(SB_URL+'/functions/v1/ncal-admin',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token,apikey:SB_KEY},body:JSON.stringify(body)});return r.json()}
 window.openInvite=()=>{modal(`<h3>Add user</h3><p class="s">Creates their login with a temporary password you can send them.</p>
   <div class="fr"><div class="f"><label>Full name</label><input id="un"></div><div class="f"><label>Job title</label><input id="ut"></div></div>
